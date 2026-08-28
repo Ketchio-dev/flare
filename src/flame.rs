@@ -141,6 +141,84 @@ fn parse(profile: &Value) -> Result<(HashMap<u64, Frame>, u64), String> {
     Ok((frames, root_id))
 }
 
+/// One function's cost, aggregated across every node that ran it.
+pub struct FnStat {
+    pub name: String,
+    pub location: String,
+    pub self_us: f64,
+    pub total_us: f64,
+}
+
+pub struct Summary {
+    pub wall_us: f64,
+    pub depth: usize,
+    pub top: Vec<FnStat>,
+    pub hot_path: Vec<String>,
+}
+
+/// What an agent (or a human in a hurry) actually needs: which functions burned
+/// the time, and the single most expensive path through the stack.
+pub fn summarize(profile: &Value, top_n: usize) -> Result<Summary, String> {
+    let (frames, root_id) = parse(profile)?;
+    let wall_us = frames.get(&root_id).map_or(0.0, |f| f.total_us);
+
+    // A function shows up as many nodes (one per call site); fold them together
+    // so "where does time go" answers with functions, not stack positions.
+    let mut agg: HashMap<(String, String), (f64, f64)> = HashMap::new();
+    let mut depth_max = 0usize;
+    let mut stack = vec![(root_id, 0usize)];
+    while let Some((id, d)) = stack.pop() {
+        let Some(f) = frames.get(&id) else { continue };
+        depth_max = depth_max.max(d);
+        let e = agg.entry((f.name.clone(), f.location.clone())).or_insert((0.0, 0.0));
+        e.0 += f.self_us;
+        e.1 += f.total_us;
+        for c in &f.children {
+            stack.push((*c, d + 1));
+        }
+    }
+
+    let mut top: Vec<FnStat> = agg
+        .into_iter()
+        .map(|((name, location), (self_us, total_us))| FnStat { name, location, self_us, total_us })
+        .filter(|s| s.self_us > 0.0)
+        .collect();
+    top.sort_by(|a, b| b.self_us.partial_cmp(&a.self_us).unwrap_or(std::cmp::Ordering::Equal));
+    top.truncate(top_n);
+
+    // Follow the widest child down: this is the chain a human would trace by eye.
+    let mut hot_path = Vec::new();
+    let mut cur = root_id;
+    loop {
+        let Some(f) = frames.get(&cur) else { break };
+        if f.name != "(root)" {
+            hot_path.push(if f.location.is_empty() {
+                f.name.clone()
+            } else {
+                format!("{} ({})", f.name, f.location)
+            });
+        }
+        let Some(&next) = f
+            .children
+            .iter()
+            .max_by(|a, b| {
+                let ta = frames.get(*a).map_or(0.0, |x| x.total_us);
+                let tb = frames.get(*b).map_or(0.0, |x| x.total_us);
+                ta.partial_cmp(&tb).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        else {
+            break;
+        };
+        // Stop once the path stops being where the time is.
+        if frames.get(&next).map_or(0.0, |x| x.total_us) < wall_us * 0.02 {
+            break;
+        }
+        cur = next;
+    }
+
+    Ok(Summary { wall_us, depth: depth_max + 1, top, hot_path })
+}
+
 const WIDTH: f64 = 1200.0;
 const ROW: f64 = 17.0;
 

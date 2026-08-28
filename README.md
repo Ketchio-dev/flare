@@ -59,15 +59,63 @@ your process manager, `docker top`.
 ```
 → attached  (ws://127.0.0.1:9229/d1812a8c-…)
 → sampling for 5s at 100µs …
-  5s / 5s
 → captured 38404 samples
-→ wrote flare.html
+
+4027 ms sampled · 18 frames deep
+
+Hot functions (self time — where the CPU actually was):
+   53.7%    2161.6 ms  priceItem                    demo-server.js:8
+    9.0%     361.5 ms  auditLog                     demo-server.js:12
+    6.7%     268.4 ms  parseBody                    demo-server.js:5
+
+Hottest path (widest branch at each level):
+  parserOnHeadersComplete (node:_http_common:77)
+    parserOnIncoming (node:_http_server:1256)
+      emit (node:events:456)
+        handleOrder (demo-server.js:14)
+          computeTotals (demo-server.js:9)
+            priceItem (demo-server.js:8)
+
+Flamegraph: flare.html
 ```
 
-The output is a **single self-contained HTML file**. No viewer to install, no
+You get the answer in the terminal without opening anything. The flamegraph is
+there when you want to see the shape of it.
+
+The HTML is a **single self-contained file**. No viewer to install, no
 server to run, no upload. The example above is 10 KB — small enough to attach to
 an issue or drop in a Slack thread, and it still works on the other person's
 machine.
+
+## For coding agents
+
+flare is built to be run by an agent, not just by a person:
+
+```bash
+flare --json --no-html          # everything on stdout, nothing interactive
+```
+
+```json
+{
+  "sampled_ms": 3019.7,
+  "hot_functions": [
+    { "function": "priceItem", "location": "demo-server.js:8",
+      "self_ms": 1715.0, "self_pct": 56.8, "total_ms": 1715.8 }
+  ],
+  "hot_path": ["parserOnIncoming (node:_http_server:1256)", "…", "priceItem (demo-server.js:8)"]
+}
+```
+
+- **The summary is the output.** Ranked hot functions and the hottest path go to
+  stdout as text or JSON. An agent never has to open, screenshot, or parse a
+  flamegraph to find out what is slow.
+- **stdout is data, stderr is chatter.** Pipe stdout and you get only results.
+- **Nothing interactive unless a human is there.** The browser opens only when
+  stdout is a terminal, so agents and CI are never interrupted.
+- **`flare` with no arguments works** when exactly one Node or Deno process is
+  running. If there are several, flare refuses to guess and lists them with
+  their pids — signalling the wrong process is not a mistake worth making
+  automatically.
 
 ## How it works
 

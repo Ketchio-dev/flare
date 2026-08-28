@@ -34,8 +34,12 @@ jobs:
       - name: profile a live node process
         run: |
           cat > /tmp/spin.js <<'JS'
-          function hot(){ let h=0; for(let i=0;i<2e6;i++) h=(h*31+i)>>>0; return h; }
-          setInterval(hot, 5);
+          // The result has to be observable, or V8 eliminates the whole loop as
+          // dead code and the profile ends up showing nothing but timers.
+          let sink = 0;
+          function hot() { let h = 0; for (let i = 0; i < 5e6; i++) h = (h * 31 + i) >>> 0; return h; }
+          setInterval(() => { sink = (sink + hot()) >>> 0; }, 1);
+          process.on("exit", () => console.log("sink", sink));
           JS
           node /tmp/spin.js & echo $! > /tmp/pid
           sleep 2
@@ -45,8 +49,15 @@ jobs:
           node -e '
             const r = require("/tmp/out.json");
             if (!r.hot_functions?.length) { console.error("no functions captured"); process.exit(1); }
-            if (r.hot_functions[0].function !== "hot") {
-              console.error("expected hot on top, got", r.hot_functions[0].function); process.exit(1);
+            const top = r.hot_functions[0];
+            if (top.function !== "hot") {
+              console.error("expected hot on top, got", top.function); process.exit(1);
+            }
+            if (top.self_pct < 50) {
+              console.error("hot should dominate, got", top.self_pct + "%"); process.exit(1);
+            }
+            if (!r.hot_path.some(f => f.startsWith("hot"))) {
+              console.error("hot missing from hot_path", r.hot_path); process.exit(1);
             }
             if (r.sampled_ms < 3000) { console.error("suspiciously short sample", r.sampled_ms); process.exit(1); }
             console.log("ok — hot was", r.hot_functions[0].self_pct + "%");

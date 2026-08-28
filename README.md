@@ -1,5 +1,9 @@
 # flare
 
+[![ci](https://github.com/Ketchio-dev/flare/actions/workflows/ci.yml/badge.svg)](https://github.com/Ketchio-dev/flare/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/Ketchio-dev/flare)](https://github.com/Ketchio-dev/flare/releases)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Profile a JavaScript process that is already running.** No restart, no code changes, no wrapper command.
 
 ```bash
@@ -37,11 +41,23 @@ flare attaches to the process as it is.
 ## Install
 
 ```bash
-cargo install --git https://github.com/Ketchio-dev/flare
+# macOS (Apple silicon)
+curl -fsSL https://github.com/Ketchio-dev/flare/releases/latest/download/flare-macos-arm64 -o flare
+
+# macOS (Intel)
+curl -fsSL https://github.com/Ketchio-dev/flare/releases/latest/download/flare-macos-x64 -o flare
+
+# Linux (x86_64)
+curl -fsSL https://github.com/Ketchio-dev/flare/releases/latest/download/flare-linux-x64 -o flare
+
+chmod +x flare && ./flare --version
 ```
 
-Or grab a binary from [releases](../../releases). It is one 1.4 MB file with no
-runtime dependencies — no Node module to install, nothing added to your project.
+Or build it: `cargo install --git https://github.com/Ketchio-dev/flare`
+
+It is one ~1.5 MB binary with no runtime dependencies — no Node module to
+install, nothing added to your project. Checksums are published with each
+[release](https://github.com/Ketchio-dev/flare/releases).
 
 ## Use
 

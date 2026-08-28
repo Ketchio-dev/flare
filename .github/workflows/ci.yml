@@ -49,17 +49,24 @@ jobs:
           node -e '
             const r = require("/tmp/out.json");
             if (!r.hot_functions?.length) { console.error("no functions captured"); process.exit(1); }
-            const top = r.hot_functions[0];
-            if (top.function !== "hot") {
-              console.error("expected hot on top, got", top.function); process.exit(1);
-            }
-            if (top.self_pct < 50) {
-              console.error("hot should dominate, got", top.self_pct + "%"); process.exit(1);
-            }
-            if (!r.hot_path.some(f => f.startsWith("hot"))) {
-              console.error("hot missing from hot_path", r.hot_path); process.exit(1);
-            }
             if (r.sampled_ms < 3000) { console.error("suspiciously short sample", r.sampled_ms); process.exit(1); }
-            console.log("ok — hot was", r.hot_functions[0].self_pct + "%");
+
+            // Assert on *location*, not function name. V8 inlines hot() into its
+            // caller often enough that the name lands on "(top level)" instead —
+            // that is V8 deciding where the frame is, not flare getting it wrong.
+            // What flare must get right is that the time is attributed to the
+            // workload file and that it dominates.
+            const top = r.hot_functions[0];
+            if (!top.location.startsWith("spin.js")) {
+              console.error("expected the workload on top, got", top.function, top.location);
+              process.exit(1);
+            }
+            if (top.self_pct < 80) {
+              console.error("workload should dominate, got", top.self_pct + "%"); process.exit(1);
+            }
+            if (!r.hot_path.some(f => f.includes("spin.js"))) {
+              console.error("workload missing from hot_path", r.hot_path); process.exit(1);
+            }
+            console.log("ok —", top.function, "@", top.location, "at", top.self_pct + "%");
           '
           kill "$(cat /tmp/pid)"

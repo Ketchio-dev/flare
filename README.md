@@ -31,7 +31,7 @@ flare attaches to the process as it is.
 ## Install
 
 ```bash
-cargo install --git https://github.com/<you>/flare
+cargo install --git https://github.com/Ketchio-dev/flare
 ```
 
 Or grab a binary from [releases](../../releases). It is one 1.4 MB file with no

@@ -54,7 +54,10 @@ fn parse(profile: &Value) -> Result<(HashMap<u64, Frame>, u64), String> {
     let mut root_id = None;
 
     for n in nodes {
-        let id = n.get("id").and_then(Value::as_u64).ok_or("node without id")?;
+        let id = n
+            .get("id")
+            .and_then(Value::as_u64)
+            .ok_or("node without id")?;
         let cf = n.get("callFrame").ok_or("node without callFrame")?;
 
         let raw_name = cf.get("functionName").and_then(Value::as_str).unwrap_or("");
@@ -63,7 +66,11 @@ fn parse(profile: &Value) -> Result<(HashMap<u64, Frame>, u64), String> {
 
         // V8 leaves the name empty for anonymous functions and top-level code.
         let name = if raw_name.is_empty() {
-            if url.is_empty() { "(anonymous)".to_string() } else { "(top level)".to_string() }
+            if url.is_empty() {
+                "(anonymous)".to_string()
+            } else {
+                "(top level)".to_string()
+            }
         } else {
             raw_name.to_string()
         };
@@ -73,7 +80,11 @@ fn parse(profile: &Value) -> Result<(HashMap<u64, Frame>, u64), String> {
         } else {
             // Full paths make tooltips unreadable; the tail is what identifies the file.
             let short = url.rsplit('/').next().unwrap_or(url);
-            if line >= 0 { format!("{short}:{}", line + 1) } else { short.to_string() }
+            if line >= 0 {
+                format!("{short}:{}", line + 1)
+            } else {
+                short.to_string()
+            }
         };
 
         let children = n
@@ -85,7 +96,16 @@ fn parse(profile: &Value) -> Result<(HashMap<u64, Frame>, u64), String> {
         if root_id.is_none() {
             root_id = Some(id);
         }
-        frames.insert(id, Frame { name, location, children, self_us: 0.0, total_us: 0.0 });
+        frames.insert(
+            id,
+            Frame {
+                name,
+                location,
+                children,
+                self_us: 0.0,
+                total_us: 0.0,
+            },
+        );
     }
 
     let root_id = root_id.ok_or("profile has no nodes")?;
@@ -123,8 +143,15 @@ fn parse(profile: &Value) -> Result<(HashMap<u64, Frame>, u64), String> {
     let mut stack = vec![(root_id, false)];
     while let Some((id, expanded)) = stack.pop() {
         if expanded {
-            let kids: Vec<u64> = frames.get(&id).map(|f| f.children.clone()).unwrap_or_default();
-            let sum: f64 = kids.iter().filter_map(|k| frames.get(k)).map(|f| f.total_us).sum();
+            let kids: Vec<u64> = frames
+                .get(&id)
+                .map(|f| f.children.clone())
+                .unwrap_or_default();
+            let sum: f64 = kids
+                .iter()
+                .filter_map(|k| frames.get(k))
+                .map(|f| f.total_us)
+                .sum();
             if let Some(f) = frames.get_mut(&id) {
                 f.total_us = f.self_us + sum;
             }
@@ -170,7 +197,9 @@ pub fn summarize(profile: &Value, top_n: usize) -> Result<Summary, String> {
     while let Some((id, d)) = stack.pop() {
         let Some(f) = frames.get(&id) else { continue };
         depth_max = depth_max.max(d);
-        let e = agg.entry((f.name.clone(), f.location.clone())).or_insert((0.0, 0.0));
+        let e = agg
+            .entry((f.name.clone(), f.location.clone()))
+            .or_insert((0.0, 0.0));
         e.0 += f.self_us;
         e.1 += f.total_us;
         for c in &f.children {
@@ -180,17 +209,25 @@ pub fn summarize(profile: &Value, top_n: usize) -> Result<Summary, String> {
 
     let mut top: Vec<FnStat> = agg
         .into_iter()
-        .map(|((name, location), (self_us, total_us))| FnStat { name, location, self_us, total_us })
+        .map(|((name, location), (self_us, total_us))| FnStat {
+            name,
+            location,
+            self_us,
+            total_us,
+        })
         .filter(|s| s.self_us > 0.0)
         .collect();
-    top.sort_by(|a, b| b.self_us.partial_cmp(&a.self_us).unwrap_or(std::cmp::Ordering::Equal));
+    top.sort_by(|a, b| {
+        b.self_us
+            .partial_cmp(&a.self_us)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     top.truncate(top_n);
 
     // Follow the widest child down: this is the chain a human would trace by eye.
     let mut hot_path = Vec::new();
     let mut cur = root_id;
-    loop {
-        let Some(f) = frames.get(&cur) else { break };
+    while let Some(f) = frames.get(&cur) {
         if f.name != "(root)" {
             hot_path.push(if f.location.is_empty() {
                 f.name.clone()
@@ -198,15 +235,11 @@ pub fn summarize(profile: &Value, top_n: usize) -> Result<Summary, String> {
                 format!("{} ({})", f.name, f.location)
             });
         }
-        let Some(&next) = f
-            .children
-            .iter()
-            .max_by(|a, b| {
-                let ta = frames.get(*a).map_or(0.0, |x| x.total_us);
-                let tb = frames.get(*b).map_or(0.0, |x| x.total_us);
-                ta.partial_cmp(&tb).unwrap_or(std::cmp::Ordering::Equal)
-            })
-        else {
+        let Some(&next) = f.children.iter().max_by(|a, b| {
+            let ta = frames.get(*a).map_or(0.0, |x| x.total_us);
+            let tb = frames.get(*b).map_or(0.0, |x| x.total_us);
+            ta.partial_cmp(&tb).unwrap_or(std::cmp::Ordering::Equal)
+        }) else {
             break;
         };
         // Stop once the path stops being where the time is.
@@ -216,7 +249,12 @@ pub fn summarize(profile: &Value, top_n: usize) -> Result<Summary, String> {
         cur = next;
     }
 
-    Ok(Summary { wall_us, depth: depth_max + 1, top, hot_path })
+    Ok(Summary {
+        wall_us,
+        depth: depth_max + 1,
+        top,
+        hot_path,
+    })
 }
 
 const WIDTH: f64 = 1200.0;
@@ -265,7 +303,11 @@ pub fn render(profile: &Value) -> Result<String, String> {
         if w > 26.0 {
             let budget = ((w - 6.0) / 6.2) as usize;
             let text: String = if label.chars().count() > budget {
-                label.chars().take(budget.saturating_sub(1)).collect::<String>() + "…"
+                label
+                    .chars()
+                    .take(budget.saturating_sub(1))
+                    .collect::<String>()
+                    + "…"
             } else {
                 label.clone()
             };
@@ -366,4 +408,140 @@ for (const g of groups) {{
 "##,
         depth = max_depth + 1,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A three-frame profile: root → work → { hot, cold }.
+    /// hot burns 800µs of its own time, cold burns 200µs.
+    fn fixture() -> Value {
+        json!({
+            "nodes": [
+                { "id": 1, "callFrame": { "functionName": "(root)", "url": "", "lineNumber": -1 },
+                  "children": [2] },
+                { "id": 2, "callFrame": { "functionName": "work", "url": "file:///app/main.js", "lineNumber": 9 },
+                  "children": [3, 4] },
+                { "id": 3, "callFrame": { "functionName": "hot", "url": "file:///app/main.js", "lineNumber": 20 } },
+                { "id": 4, "callFrame": { "functionName": "cold", "url": "file:///app/main.js", "lineNumber": 30 } }
+            ],
+            "samples":    [3,   3,   4,   2],
+            "timeDeltas": [500, 300, 200, 100]
+        })
+    }
+
+    #[test]
+    fn self_time_comes_from_the_sample_stream() {
+        let s = summarize(&fixture(), 10).unwrap();
+        let hot = s.top.iter().find(|f| f.name == "hot").unwrap();
+        let cold = s.top.iter().find(|f| f.name == "cold").unwrap();
+        assert_eq!(hot.self_us, 800.0, "hot should own both of its samples");
+        assert_eq!(cold.self_us, 200.0);
+        assert_eq!(s.wall_us, 1100.0, "root total is every sample");
+    }
+
+    #[test]
+    fn functions_rank_by_self_time_not_total() {
+        let s = summarize(&fixture(), 10).unwrap();
+        // `work` has the larger *total* but barely any self time, so the
+        // ranking must not put it first — that is the whole point of the list.
+        assert_eq!(s.top[0].name, "hot");
+        assert!(s.top.iter().position(|f| f.name == "work").unwrap() > 0);
+    }
+
+    #[test]
+    fn hot_path_follows_the_widest_branch() {
+        let s = summarize(&fixture(), 10).unwrap();
+        assert!(s.hot_path[0].starts_with("work"), "got {:?}", s.hot_path);
+        assert!(
+            s.hot_path.last().unwrap().starts_with("hot"),
+            "got {:?}",
+            s.hot_path
+        );
+    }
+
+    #[test]
+    fn locations_are_shortened_and_lines_are_one_based() {
+        let s = summarize(&fixture(), 10).unwrap();
+        let hot = s.top.iter().find(|f| f.name == "hot").unwrap();
+        assert_eq!(hot.location, "main.js:21", "V8 lineNumber is 0-based");
+    }
+
+    #[test]
+    fn anonymous_frames_get_a_readable_name() {
+        let p = json!({
+            "nodes": [
+                { "id": 1, "callFrame": { "functionName": "(root)", "url": "", "lineNumber": -1 }, "children": [2] },
+                { "id": 2, "callFrame": { "functionName": "", "url": "file:///a.js", "lineNumber": 0 } }
+            ],
+            "samples": [2], "timeDeltas": [100]
+        });
+        let s = summarize(&p, 10).unwrap();
+        assert!(s.top.iter().any(|f| f.name == "(top level)"));
+    }
+
+    #[test]
+    fn falls_back_to_hit_count_when_there_is_no_sample_stream() {
+        let p = json!({
+            "nodes": [
+                { "id": 1, "callFrame": { "functionName": "(root)", "url": "", "lineNumber": -1 }, "children": [2] },
+                { "id": 2, "callFrame": { "functionName": "old", "url": "", "lineNumber": -1 }, "hitCount": 7 }
+            ]
+        });
+        let s = summarize(&p, 10).unwrap();
+        assert_eq!(
+            s.top[0].self_us, 700.0,
+            "7 hits at the default 100us interval"
+        );
+    }
+
+    #[test]
+    fn negative_deltas_do_not_subtract_time() {
+        // Clock adjustments occasionally produce a negative delta; treating it
+        // as time would make a function look faster than free.
+        let p = json!({
+            "nodes": [
+                { "id": 1, "callFrame": { "functionName": "(root)", "url": "", "lineNumber": -1 }, "children": [2] },
+                { "id": 2, "callFrame": { "functionName": "f", "url": "", "lineNumber": -1 } }
+            ],
+            "samples": [2, 2], "timeDeltas": [500, -400]
+        });
+        let s = summarize(&p, 10).unwrap();
+        assert_eq!(s.top[0].self_us, 500.0);
+    }
+
+    #[test]
+    fn render_produces_a_standalone_page_with_escaped_names() {
+        let p = json!({
+            "nodes": [
+                { "id": 1, "callFrame": { "functionName": "(root)", "url": "", "lineNumber": -1 }, "children": [2] },
+                { "id": 2, "callFrame": { "functionName": "<script>&", "url": "", "lineNumber": -1 } }
+            ],
+            "samples": [2], "timeDeltas": [1000]
+        });
+        let html = render(&p).unwrap();
+        assert!(html.starts_with("<!doctype html>"));
+        assert!(
+            !html.contains("http://"),
+            "must not reference anything external"
+        );
+        assert!(
+            html.contains("&lt;script&gt;&amp;"),
+            "function names must be escaped"
+        );
+        assert!(!html.contains("<script>&"), "raw name leaked into the page");
+    }
+
+    #[test]
+    fn an_empty_profile_is_an_error_not_a_blank_page() {
+        assert!(render(&json!({ "nodes": [] })).is_err());
+    }
+
+    #[test]
+    fn the_same_function_keeps_the_same_colour() {
+        assert_eq!(colour("parseBody"), colour("parseBody"));
+        assert_ne!(colour("parseBody"), colour("priceItem"));
+    }
 }

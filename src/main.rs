@@ -38,6 +38,7 @@ OPTIONS:
         --open / --no-open   force the browser open or shut
                              (default: open only when stdout is a terminal)
     -h, --help               print this help
+    -V, --version            print the version
 
 FOR AGENTS:
     flare --json             everything on stdout, nothing interactive
@@ -76,15 +77,25 @@ fn parse_args() -> Result<Args, String> {
         let arg = argv[i].clone();
         let next = |i: &mut usize| -> Result<String, String> {
             *i += 1;
-            argv.get(*i).cloned().ok_or_else(|| format!("{arg} needs a value"))
+            argv.get(*i)
+                .cloned()
+                .ok_or_else(|| format!("{arg} needs a value"))
         };
         match arg.as_str() {
             "-h" | "--help" => {
                 print!("{USAGE}");
                 std::process::exit(0);
             }
-            "-d" | "--duration" => a.duration = next(&mut i)?.parse().map_err(|_| "bad duration")?,
-            "-i" | "--interval" => a.interval = next(&mut i)?.parse().map_err(|_| "bad interval")?,
+            "-V" | "--version" => {
+                println!("flare {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            "-d" | "--duration" => {
+                a.duration = next(&mut i)?.parse().map_err(|_| "bad duration")?
+            }
+            "-i" | "--interval" => {
+                a.interval = next(&mut i)?.parse().map_err(|_| "bad interval")?
+            }
             "-o" | "--out" => a.out = next(&mut i)?,
             "-n" | "--top" => a.top = next(&mut i)?.parse().map_err(|_| "bad --top")?,
             "-p" | "--port" => a.port = next(&mut i)?.parse().map_err(|_| "bad port")?,
@@ -103,11 +114,19 @@ fn parse_args() -> Result<Args, String> {
 
 /// Human-readable summary. Goes to stdout so it can be piped or captured.
 fn print_text(s: &flame::Summary, html: Option<&str>) {
-    println!("\n{:.0} ms sampled · {} frames deep\n", s.wall_us / 1000.0, s.depth);
+    println!(
+        "\n{:.0} ms sampled · {} frames deep\n",
+        s.wall_us / 1000.0,
+        s.depth
+    );
     println!("Hot functions (self time — where the CPU actually was):");
     let wall = s.wall_us.max(1.0);
     for f in &s.top {
-        let loc = if f.location.is_empty() { "-" } else { &f.location };
+        let loc = if f.location.is_empty() {
+            "-"
+        } else {
+            &f.location
+        };
         println!(
             "  {pct:5.1}%  {ms:8.1} ms  {name:<28} {loc}",
             pct = f.self_us / wall * 100.0,
@@ -177,8 +196,10 @@ fn run() -> Result<(), String> {
     let cpuprofile = profile::capture(&ws_url, args.duration, args.interval)?;
 
     let written = if args.html {
-        let html = flame::render(&cpuprofile).map_err(|e| format!("could not build flamegraph: {e}"))?;
-        std::fs::write(&args.out, html).map_err(|e| format!("could not write {}: {e}", args.out))?;
+        let html =
+            flame::render(&cpuprofile).map_err(|e| format!("could not build flamegraph: {e}"))?;
+        std::fs::write(&args.out, html)
+            .map_err(|e| format!("could not write {}: {e}", args.out))?;
         Some(args.out.clone())
     } else {
         None
@@ -193,12 +214,18 @@ fn run() -> Result<(), String> {
 
     // Open only for a human at a terminal: an agent capturing stdout does not
     // want a browser window, and CI certainly does not.
-    let open = args.open.unwrap_or_else(|| std::io::stdout().is_terminal() && !args.json);
+    let open = args
+        .open
+        .unwrap_or_else(|| std::io::stdout().is_terminal() && !args.json);
     if open {
         if let Some(path) = &written {
-            let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" })
-                .arg(path)
-                .status();
+            let _ = std::process::Command::new(if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            })
+            .arg(path)
+            .status();
         }
     }
     Ok(())

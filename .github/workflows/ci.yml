@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  # The claim on the tin is "attaches to a process that is already running".
+  # Prove it on every push rather than trusting the README.
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: profile a live node process
+        run: |
+          cat > /tmp/spin.js <<'JS'
+          function hot(){ let h=0; for(let i=0;i<2e6;i++) h=(h*31+i)>>>0; return h; }
+          setInterval(hot, 5);
+          JS
+          node /tmp/spin.js & echo $! > /tmp/pid
+          sleep 2
+          ./target/release/flare "$(cat /tmp/pid)" -d 5 --json --no-html > /tmp/out.json
+          cat /tmp/out.json
+          # The workload is one hot function; it must top the ranking.
+          node -e '
+            const r = require("/tmp/out.json");
+            if (!r.hot_functions?.length) { console.error("no functions captured"); process.exit(1); }
+            if (r.hot_functions[0].function !== "hot") {
+              console.error("expected hot on top, got", r.hot_functions[0].function); process.exit(1);
+            }
+            if (r.sampled_ms < 3000) { console.error("suspiciously short sample", r.sampled_ms); process.exit(1); }
+            console.log("ok — hot was", r.hot_functions[0].self_pct + "%");
+          '
+          kill "$(cat /tmp/pid)"

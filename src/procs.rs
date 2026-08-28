@@ -13,7 +13,10 @@ struct Proc {
 
 /// Every process whose executable is a JS runtime we can profile.
 fn js_processes() -> Vec<Proc> {
-    let out = match Command::new("ps").args(["-A", "-o", "pid=,comm=,args="]).output() {
+    let out = match Command::new("ps")
+        .args(["-A", "-o", "pid=,comm=,args="])
+        .output()
+    {
         Ok(o) => o,
         Err(_) => return Vec::new(),
     };
@@ -48,7 +51,10 @@ fn js_processes() -> Vec<Proc> {
             {
                 return None;
             }
-            Some(Proc { pid, cmd: args.trim().to_string() })
+            Some(Proc {
+                pid,
+                cmd: args.trim().to_string(),
+            })
         })
         .collect()
 }
@@ -62,7 +68,8 @@ pub fn sole_js_process() -> Result<i32, String> {
         0 => Err("no running Node or Deno process found — pass a pid explicitly".into()),
         1 => Ok(found[0].pid),
         _ => {
-            let mut msg = String::from("several JS processes are running — pass the pid you want:\n");
+            let mut msg =
+                String::from("several JS processes are running — pass the pid you want:\n");
             for p in found.iter().take(12) {
                 let cmd: String = p.cmd.chars().take(90).collect();
                 msg.push_str(&format!("  {:>7}  {}\n", p.pid, cmd));

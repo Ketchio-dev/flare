@@ -18,7 +18,8 @@ struct Cdp {
 
 impl Cdp {
     fn connect(url: &str) -> Result<Self, String> {
-        let (ws, _) = tungstenite::connect(url).map_err(|e| format!("could not open debugger socket: {e}"))?;
+        let (ws, _) = tungstenite::connect(url)
+            .map_err(|e| format!("could not open debugger socket: {e}"))?;
         Ok(Self { ws, next_id: 1 })
     }
 
@@ -40,7 +41,9 @@ impl Cdp {
                 .map_err(|e| format!("{method}: connection lost: {e}"))?;
             let text = match msg {
                 Message::Text(t) => t,
-                Message::Close(_) => return Err(format!("{method}: debugger closed the connection")),
+                Message::Close(_) => {
+                    return Err(format!("{method}: debugger closed the connection"))
+                }
                 _ => continue, // ping/pong/binary — not ours
             };
             let v: Value = match serde_json::from_str(&text) {
@@ -51,7 +54,10 @@ impl Cdp {
                 continue; // an event, or another command's reply
             }
             if let Some(err) = v.get("error") {
-                let m = err.get("message").and_then(Value::as_str).unwrap_or("unknown error");
+                let m = err
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown error");
                 return Err(format!("{method}: {m}"));
             }
             return Ok(v.get("result").cloned().unwrap_or(Value::Null));
@@ -75,7 +81,10 @@ pub fn capture(ws_url: &str, duration: u64, interval_us: u32) -> Result<Value, S
         }
     })?;
     // Must be set before start; V8 ignores it mid-run.
-    cdp.call("Profiler.setSamplingInterval", json!({ "interval": interval_us }))?;
+    cdp.call(
+        "Profiler.setSamplingInterval",
+        json!({ "interval": interval_us }),
+    )?;
     cdp.call("Profiler.start", json!({}))?;
 
     // Progress on one line so a long sample does not look like a hang.
@@ -93,7 +102,10 @@ pub fn capture(ws_url: &str, duration: u64, interval_us: u32) -> Result<Value, S
 
     // An idle process yields a profile with no samples; say so rather than
     // rendering an empty page the user has to puzzle over.
-    let samples = profile.get("samples").and_then(Value::as_array).map_or(0, Vec::len);
+    let samples = profile
+        .get("samples")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
     if samples == 0 {
         return Err("captured 0 samples — the process was idle the whole time".into());
     }

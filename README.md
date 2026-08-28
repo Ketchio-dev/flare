@@ -163,6 +163,18 @@ self time.
 - **Native frames are not resolved.** Time inside C++ addons shows up as
   `(program)` rather than a named stack.
 
+## Development
+
+```bash
+cargo test              # unit tests over synthetic profiles
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+```
+
+CI additionally profiles a real live Node process on every push and asserts the
+known hot function comes out on top — the claim on the tin is checked, not
+just the code.
+
 ## License
 
 MIT

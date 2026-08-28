@@ -8,6 +8,12 @@ flare 51234
 
 That's it. flare attaches to the live process, samples it, and opens a flamegraph in your browser.
 
+![flare flamegraph](assets/demo.png)
+
+*A live Node HTTP server. `priceItem` is 54% of the sampled window — six frames
+deep inside a request handler, which is exactly the sort of thing you do not see
+until you look.*
+
 ---
 
 ## Why
